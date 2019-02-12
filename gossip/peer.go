@@ -147,7 +147,7 @@ loop:
 //여기서는 간단하게 \n 구분자로 패킷을 정의했지만, 보다 큰 패킷의 경우에는 사이즈를 헤더에 포함시키는 방법등 다른 방식으로 한다.
 func (p *Peer) writeMsg(msg Msg) error {
 	p.c.fd.SetWriteDeadline(time.Now().Add(1 * time.Second))
-	packet := msg.Code + ":" + msg.Payload + "\n"
+	packet := msg.Code + "|" + msg.Payload + "\n"
 	_, err := p.c.fd.Write([]byte(packet))
 
 	if err != nil {
@@ -170,7 +170,7 @@ func (p *Peer) ReadMsg() (Msg, error) {
 		return msg, err
 	}
 	packet = strings.TrimSuffix(packet, "\n")
-	splited_packet := strings.Split(packet, ":")
+	splited_packet := strings.Split(packet, "|")
 	//fmt.Printf("[Peer] ReadMsg : [%s] \n", packet)
 
 	msg.Code = splited_packet[0]
@@ -338,7 +338,7 @@ func (pm *PeerManager) collect() {
 	pm.tick_cllect = time.NewTicker(time.Second * 30)
 	go func() {
 		for t := range pm.tick_cllect.C {
-			fmt.Println("Collect Tick [%s]***********************************", t.String())
+			fmt.Printf("Collect Tick [%s]***********************************\n", t.String())
 
 			if len(pm.peers) <= 3 {
 				for _, peer := range pm.peers {
@@ -376,12 +376,12 @@ func (pm *PeerManager) collected(peersInfo string) {
 // 리모트 peer로 부터 내 피어 정보가 요청된 것을 처리
 func (pm *PeerManager) getCollect() string {
 	fmt.Println("[PeerManager] getCollect")
-	peersPort := []string{}
+	peersAddress := []string{}
 	for _, peer := range pm.peers {
-		peersPort = append(peersPort, peer.name)
+		peersAddress = append(peersAddress, peer.name)
 	}
 
-	return strings.Join(peersPort, ",")
+	return strings.Join(peersAddress, ",")
 }
 
 // ================================= Dialer & Task ================================//
