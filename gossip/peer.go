@@ -8,7 +8,6 @@ import (
 	"math/rand"
 	"net"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -328,9 +327,9 @@ func (pm *PeerManager) propagationBlock(msg Msg) {
 	fmt.Println("==================================================================")
 }
 
-func (pm *PeerManager) boostrap(port int) {
+func (pm *PeerManager) boostrap(address string) {
 	fmt.Println("[PeerManager] boostrap")
-	pm.dial.addDial(port)
+	pm.dial.addDial(address)
 }
 
 // 30초에 한번씩 리모트 peer들 피어 정보를 요청
@@ -363,14 +362,13 @@ func (pm *PeerManager) collect() {
 // 리모트 peer의 피어 정보를 받아서 처리
 func (pm *PeerManager) collected(peersInfo string) {
 	fmt.Println("[PeerManager] collected")
-	peersPort := strings.Split(peersInfo, ",")
-	for _, port := range peersPort {
-		fmt.Printf("[PeerManager] collected peer [%s] \n", port)
-		portNum, _ := strconv.Atoi(port)
+	peersAddress := strings.Split(peersInfo, ",")
+	for _, address := range peersAddress {
+		fmt.Printf("[PeerManager] collected address [%s] \n", address)
 		//새로운 Peer 정보가 자기 자신이 아니고, 이미 연결된 피어가 아니라면 새 연결
-		_, ok := pm.peers[port]
-		if pm.node.name != port && !ok {
-			pm.dial.addDial(portNum)
+		_, ok := pm.peers[address]
+		if pm.node.name != address && !ok {
+			pm.dial.addDial(address)
 		}
 	}
 }
@@ -391,14 +389,14 @@ func (pm *PeerManager) getCollect() string {
 var dialer_mutex = &sync.Mutex{}
 
 type Dialer struct {
-	needDial []int // Port
+	needDial []string // ip/port
 }
 
-func (dialer *Dialer) addDial(port int) {
-	fmt.Printf("addDial to [%d] \n", port)
+func (dialer *Dialer) addDial(address string) {
+	fmt.Printf("addDial to [%s] \n", address)
 	dialer_mutex.Lock()
 	defer dialer_mutex.Unlock()
-	dialer.needDial = append(dialer.needDial, port)
+	dialer.needDial = append(dialer.needDial, address)
 }
 
 func (dialer *Dialer) newTask() []Task {
@@ -408,7 +406,7 @@ func (dialer *Dialer) newTask() []Task {
 	if len(dialer.needDial) > 0 {
 		alltasks := make([]Task, 0, len(dialer.needDial))
 		for _, port := range dialer.needDial {
-			alltasks = append(alltasks, Task{port: port})
+			alltasks = append(alltasks, Task{address: port})
 		}
 
 		dialer.needDial = dialer.needDial[:0]
@@ -419,13 +417,12 @@ func (dialer *Dialer) newTask() []Task {
 }
 
 type Task struct {
-	port int
+	address string
 }
 
 func (t *Task) Do(n *Node) {
-	dest := ":" + strconv.Itoa(t.port)
-	fmt.Printf("[Task] Connecting to %s...\n", dest)
-	new_conn, err := net.Dial("tcp", dest)
+	fmt.Printf("[Task] Connecting to %s...\n", t.address)
+	new_conn, err := net.Dial("tcp", t.address)
 	if err != nil {
 		if _, t := err.(*net.OpError); t {
 			fmt.Println("Some problem connecting.")
@@ -445,7 +442,7 @@ type Node struct {
 	pm         *PeerManager
 	ListenAddr string // ":25000"
 	listener   net.Listener
-	bootstrap  int
+	bootstrap  string
 	running    bool
 	isLeader   bool
 
@@ -472,7 +469,7 @@ func (n *Node) Start() {
 	n.startListening()
 
 	// dialer
-	dialer := &Dialer{needDial: []int{}}
+	dialer := &Dialer{needDial: []string{}}
 	go n.run(dialer)
 	n.running = true
 
@@ -640,21 +637,22 @@ func (n *Node) getBlock() {
 	}()
 }
 
-func newNode(name string, port int, isLeader bool, bootstrap int) *Node {
-	return &Node{name: name, ListenAddr: fmt.Sprintf(":%d", port), isLeader: isLeader, bootstrap: bootstrap}
+func newNode(name string, ip string, port int, isLeader bool, bootstrap string) *Node {
+	return &Node{name: name, ListenAddr: fmt.Sprintf("%s:%d", ip, port), isLeader: isLeader, bootstrap: bootstrap}
 }
 
 // ================================= Main ================================//
 // how to run:
-// leader peer : go run peer.go -name 28000 -port 28000 -leader
-// non-leader peer : go run peer.go -name 28001 -port 28001 -bootstrap 28000
+// leader peer : go run peer.go -name 127.0.0.1:28000 -ip 127.0.0.1 -port 28000 -leader
+// non-leader peer : go run peer.go -name 127.0.0.1:28001 -ip 127.0.0.1 -port 28001 -bootstrap 127.0.0.1:28000
 func main() {
-	NAME := flag.String("name", "28000", "peer name")
-	PORT := flag.Int("port", 28000, "port num")
-	BOOTSTRAP_PORT := flag.Int("bootstrap", 28000, "port num")
+	NAME := flag.String("name", "127.0.0.1:28000", "peer name")
+	IP := flag.String("ip", "127.0.0.1", "-ip string")
+	PORT := flag.Int("port", 28000, "-port num")
+	BOOTSTRAP_ADDRESS := flag.String("bootstrap", "127.0.0.1:28000", "-bootstrap")
 	LEADER := flag.Bool("leader", false, "lead peer")
 	flag.Parse()
 
-	node := newNode(*NAME, *PORT, *LEADER, *BOOTSTRAP_PORT)
+	node := newNode(*NAME, *IP, *PORT, *LEADER, *BOOTSTRAP_ADDRESS)
 	node.Start()
 }
