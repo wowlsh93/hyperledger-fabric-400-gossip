@@ -10,6 +10,13 @@ ADD . /go/src/github.com/wowlsh93/hyperledger-fabric-400-gossip
 # either manually or with a tool like "godep".)
 RUN go install github.com/wowlsh93/hyperledger-fabric-400-gossip/gossip
 
-# how to run
-# docker run -p 28000:28000 --net host --name  gossip1 --rm gossip /go/bin/gossip -name 28000 -port 28000 -leader
-# docker run -p 28001:28001 --net host --name  gossip2 --rm gossip /go/bin/gossip -name 28001 -port 28001 -bootstrap 28000
+# run by host network
+# docker run -p 28000:28000 --net host --name  gossip1 --rm gossip /go/bin/gossip -name  192.168.1.58:28000 -ip  192.168.1.58 -port 28000 -leader
+# docker run -p 28001:28001 --net host --name  gossip2 --rm gossip /go/bin/gossip -name  192.168.1.58:28001 -ip  192.168.1.58 -port 28001  -bootstrap   192.168.1.58:28000
+# docker run -p 28001:28002 --net host --name  gossip3 --rm gossip /go/bin/gossip -name  192.168.1.58:28002 -ip  192.168.1.58 -port 28002  -bootstrap   192.168.1.58:28000
+
+
+# run by bridge network
+# docker run -it --network=gossip-network --name gossip1  gossip /go/bin/gossip -name  gossip1:28000 -ip gossip1 -port 28000 -leader
+# docker run -it --network=gossip-network --name gossip2  gossip /go/bin/gossip -name  gossip2:28001 -ip gossip2 -port 28001  -bootstrap  gossip1:28000
+# docker run -it --network=gossip-network --name gossip3  gossip /go/bin/gossip -name  gossip2:28002 -ip gossip3 -port 28002  -bootstrap  gossip1:28000

@@ -1,0 +1,26 @@
+version: '2'
+services:
+  leader:
+    image: gossip
+    container_name: gossip1
+    command: /go/bin/gossip -name  gossip1:28000 -ip gossip1 -port 28000 -leader
+    restart:
+      on-failure
+
+
+  peer1:
+    image: gossip
+    container_name: gossip2
+    command: /go/bin/gossip -name  gossip2:28001 -ip gossip2 -port 28001  -bootstrap  gossip1:28000
+    restart:
+      on-failure
+    depends_on:
+      - leader
+  peer2:
+    image: gossip
+    container_name: gossip3
+    command: /go/bin/gossip -name  gossip3:28002 -ip gossip3 -port 28002  -bootstrap  gossip1:28000
+    restart:
+      on-failure
+    depends_on:
+      - leader
