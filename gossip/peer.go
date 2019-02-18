@@ -2,15 +2,22 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"flag"
 	"fmt"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
+	"log"
 	"math/rand"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	pb "github.com/wowlsh93/hyperledger-fabric-400-gossip/gossip/ledgerAPI"
 )
 
 const (
@@ -74,11 +81,18 @@ type Msg struct {
 }
 
 // ============================== blockchain ================================//
+
+
+var block_mutex = &sync.RWMutex{}
+
+
 type blockchain struct {
 	blocks map[string]string
 }
 
 func (b *blockchain) contains(id string) bool {
+	block_mutex.RLock()
+	defer block_mutex.RUnlock()
 	if _, ok := b.blocks[id]; ok {
 		return true
 	}
@@ -86,9 +100,20 @@ func (b *blockchain) contains(id string) bool {
 	return false
 }
 
-func (b *blockchain) add(id string, body string) {
-	b.blocks[id] = body
+func (b *blockchain) getBlockInfo(id string) string {
+	block_mutex.RLock()
+	defer block_mutex.RUnlock()
+	if value, ok := b.blocks[id]; ok {
+		return value
+	}
+	return "there is no block"
 }
+
+func (b *blockchain) add(id string, body string) {
+	block_mutex.Lock()
+	defer block_mutex.Unlock()
+	b.blocks[id] = body
+	}
 
 // ================================= conn ================================//
 
@@ -254,7 +279,7 @@ func newPeer(n *Node, c *conn) *Peer {
 		in:       make(chan Msg), // receives read messages
 		protoErr: make(chan error),
 		closed:   make(chan struct{}),
-		bc:       &blockchain{blocks: make(map[string]string, 100)},
+		bc:       n.blockchain,
 	}
 	return p
 }
@@ -436,15 +461,33 @@ func (t *Task) Do(n *Node) {
 
 }
 
+
+
+// ================================= grpc Service ================================//
+
+type rpcService struct{
+	n * Node
+}
+
+func (s *rpcService) GetBlock(ctx context.Context, in *pb.BlockRequest) (*pb.BlockReply, error) {
+	fmt.Printf("RPC Received: %s \n", in.BlockId)
+	info := s.n.blockchain.getBlockInfo(in.BlockId)
+	return &pb.BlockReply{BlockBody: "Block is : " + info}, nil
+}
+
 // ================================= Node ================================//
 type Node struct {
 	name       string
 	pm         *PeerManager
-	ListenAddr string // ":25000"
+	blockchain *blockchain
+
+	ListenAddr string // ":28000"
 	listener   net.Listener
 	bootstrap  string
 	running    bool
 	isLeader   bool
+
+	ListenRPCAddr   string // ":29000"
 
 	addConn  chan *conn
 	delpeer  chan string
@@ -465,6 +508,8 @@ func (n *Node) Start() {
 	n.quit = make(chan struct{})
 	n.stop = make(chan struct{})
 
+	n.blockchain = &blockchain{blocks: make(map[string]string, 100)}
+
 	// listening
 	n.startListening()
 
@@ -474,13 +519,30 @@ func (n *Node) Start() {
 	n.running = true
 
 	// protocolManager
-	n.pm = &PeerManager{node: n, dial: dialer, peers: make(map[string]*Peer, 100)}
+	n.pm = &PeerManager{node: n, dial: dialer, peers: make(map[string]*Peer, 100) }
 	n.pm.Start()
 
 	// if this peer is leader, get block from orderer
 	if n.isLeader {
 		go n.getBlock()
+
+		// grpc for exposing block information
+		go func(){
+
+			lis, err := net.Listen("tcp", n.ListenRPCAddr)
+			if err != nil {
+				log.Fatalf("failed to listen: %v", err)
+			}
+			s := grpc.NewServer()
+			pb.RegisterBlockServer(s, &rpcService{n: n})
+			reflection.Register(s)
+			if err := s.Serve(lis); err != nil {
+				log.Fatalf("failed to serve: %v", err)
+			}
+
+		}()
 	}
+
 
 	<-n.stop
 }
@@ -626,6 +688,8 @@ func (n *Node) getBlock() {
 			// 오더러에서 가져왔다고 가정하자.
 			payload := fmt.Sprintf("Block-%d", i)
 			fmt.Printf("Block-%d From Orderer ======================================== \n", i)
+
+			n.blockchain.add(strconv.Itoa(i),payload)
 			selectedPeer := selectRandom3(n.pm.peers)
 			for _, peer := range selectedPeer {
 				msg := Msg{Code: "block", Payload: payload}
@@ -637,22 +701,24 @@ func (n *Node) getBlock() {
 	}()
 }
 
-func newNode(name string, ip string, port int, isLeader bool, bootstrap string) *Node {
-	return &Node{name: name, ListenAddr: fmt.Sprintf("%s:%d", ip, port), isLeader: isLeader, bootstrap: bootstrap}
+func newNode(name string, ip string, port int, rpcPort int,  isLeader bool, bootstrap string) *Node {
+	return &Node{name: name, ListenAddr: fmt.Sprintf("%s:%d", ip, port), ListenRPCAddr: fmt.Sprintf("%s:%d", ip, rpcPort), isLeader: isLeader, bootstrap: bootstrap}
 }
 
 // ================================= Main ================================//
 // how to run:
-// leader peer : go run peer.go -name 127.0.0.1:28000 -ip 127.0.0.1 -port 28000 -leader
+// leader peer : go run peer.go -name 127.0.0.1:28000 -ip 127.0.0.1 -port 28000 -rpc 29000 -leader
 // non-leader peer : go run peer.go -name 127.0.0.1:28001 -ip 127.0.0.1 -port 28001 -bootstrap 127.0.0.1:28000
 func main() {
 	NAME := flag.String("name", "127.0.0.1:28000", "peer name")
 	IP := flag.String("ip", "127.0.0.1", "-ip string")
 	PORT := flag.Int("port", 28000, "-port num")
+	RPC_PORT := flag.Int("rpc", 29000, "-rpc num")
 	BOOTSTRAP_ADDRESS := flag.String("bootstrap", "127.0.0.1:28000", "-bootstrap")
 	LEADER := flag.Bool("leader", false, "lead peer")
 	flag.Parse()
 
-	node := newNode(*NAME, *IP, *PORT, *LEADER, *BOOTSTRAP_ADDRESS)
+	node := newNode(*NAME, *IP, *PORT, *RPC_PORT, *LEADER, *BOOTSTRAP_ADDRESS)
 	node.Start()
 }
+
