@@ -82,9 +82,7 @@ type Msg struct {
 
 // ============================== blockchain ================================//
 
-
 var block_mutex = &sync.RWMutex{}
-
 
 type blockchain struct {
 	blocks map[string]string
@@ -113,7 +111,7 @@ func (b *blockchain) add(id string, body string) {
 	block_mutex.Lock()
 	defer block_mutex.Unlock()
 	b.blocks[id] = body
-	}
+}
 
 // ================================= conn ================================//
 
@@ -461,12 +459,10 @@ func (t *Task) Do(n *Node) {
 
 }
 
-
-
 // ================================= grpc Service ================================//
 
-type rpcService struct{
-	n * Node
+type rpcService struct {
+	n *Node
 }
 
 func (s *rpcService) GetBlock(ctx context.Context, in *pb.BlockRequest) (*pb.BlockReply, error) {
@@ -487,7 +483,7 @@ type Node struct {
 	running    bool
 	isLeader   bool
 
-	ListenRPCAddr   string // ":29000"
+	ListenRPCAddr string // ":29000"
 
 	addConn  chan *conn
 	delpeer  chan string
@@ -519,7 +515,7 @@ func (n *Node) Start() {
 	n.running = true
 
 	// protocolManager
-	n.pm = &PeerManager{node: n, dial: dialer, peers: make(map[string]*Peer, 100) }
+	n.pm = &PeerManager{node: n, dial: dialer, peers: make(map[string]*Peer, 100)}
 	n.pm.Start()
 
 	// if this peer is leader, get block from orderer
@@ -527,7 +523,7 @@ func (n *Node) Start() {
 		go n.getBlock()
 
 		// grpc for exposing block information
-		go func(){
+		go func() {
 
 			lis, err := net.Listen("tcp", n.ListenRPCAddr)
 			if err != nil {
@@ -543,6 +539,7 @@ func (n *Node) Start() {
 		}()
 	}
 
+	// websocket add
 
 	<-n.stop
 }
@@ -689,7 +686,7 @@ func (n *Node) getBlock() {
 			payload := fmt.Sprintf("Block-%d", i)
 			fmt.Printf("Block-%d From Orderer ======================================== \n", i)
 
-			n.blockchain.add(strconv.Itoa(i),payload)
+			n.blockchain.add(strconv.Itoa(i), payload)
 			selectedPeer := selectRandom3(n.pm.peers)
 			for _, peer := range selectedPeer {
 				msg := Msg{Code: "block", Payload: payload}
@@ -701,7 +698,7 @@ func (n *Node) getBlock() {
 	}()
 }
 
-func newNode(name string, ip string, port int, rpcPort int,  isLeader bool, bootstrap string) *Node {
+func newNode(name string, ip string, port int, rpcPort int, isLeader bool, bootstrap string) *Node {
 	return &Node{name: name, ListenAddr: fmt.Sprintf("%s:%d", ip, port), ListenRPCAddr: fmt.Sprintf("%s:%d", ip, rpcPort), isLeader: isLeader, bootstrap: bootstrap}
 }
 
@@ -721,4 +718,3 @@ func main() {
 	node := newNode(*NAME, *IP, *PORT, *RPC_PORT, *LEADER, *BOOTSTRAP_ADDRESS)
 	node.Start()
 }
-
