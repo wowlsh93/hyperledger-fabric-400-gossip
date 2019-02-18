@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+
+package ledgerAPI;
+
+service Block {
+  rpc getBlock (BlockRequest) returns (BlockReply) {}
+}
+
+message BlockRequest {
+  string blockId = 1;
+}
+
+message BlockReply {
+  string blockBody = 1;
+}
